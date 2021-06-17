@@ -81,12 +81,37 @@ bool authentication(int socket, char authenticatedUser[]) {
         if(strcmp(username, usernameInDB) == 0 && strcmp(password, passwordInDB) == 0) {
             strcpy(authenticatedUser, username);
             fclose(usersTable);
+            chdir("../");
             return true;
         }
     }
     fclose(usersTable);
     printf("User %s gagal login\n", username);
+    chdir("../");
     return false;
+}
+
+void createUser(int socket, char authenticatedUser[]) {
+    char username[MAX_CREDENTIALS_LENGTH], password[MAX_CREDENTIALS_LENGTH];
+    memset(username, 0, MAX_CREDENTIALS_LENGTH);
+    memset(password, 0, MAX_CREDENTIALS_LENGTH);
+    read(socket, username, MAX_CREDENTIALS_LENGTH);
+    read(socket, password, MAX_CREDENTIALS_LENGTH);
+    if(strcmp(authenticatedUser, "root") != 0) {
+        send(socket, failMsg, FAIL_OR_SUCCESS_LENGTH, 0);
+        return;
+    }
+    chdir(defaultDB);
+    FILE * usersTable = fopen(defaultUsersTable, "a");
+    if(usersTable == NULL) {
+        chdir("../");
+        send(socket, failMsg, FAIL_OR_SUCCESS_LENGTH, 0);
+        return;
+    }
+    fprintf(usersTable, "%s %s\n", username, password);
+    fclose(usersTable);
+    chdir("../");
+    send(socket, successMsg, FAIL_OR_SUCCESS_LENGTH, 0);
 }
 
 void * app(void * vargp) {
@@ -99,6 +124,15 @@ void * app(void * vargp) {
     }
     send(socket, successMsg, FAIL_OR_SUCCESS_LENGTH, 0);
     printf("User %s authenticated\n", authenticatedUser);
+    while(true) {
+        char action[MAX_INFORMATION_LENGTH];
+        memset(action, 0, MAX_INFORMATION_LENGTH);
+        int readStatus = read(socket, action, MAX_INFORMATION_LENGTH);
+        if(readStatus <= 0)
+            return NULL;
+        if(strcmp(action, "createUser") == 0)
+            createUser(socket, authenticatedUser);
+    }
 }
 
 int main(int argc, char * argv[]) {

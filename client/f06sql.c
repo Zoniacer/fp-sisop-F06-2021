@@ -47,6 +47,10 @@ bool authentication(int sock) {
         return false;
     }
     if(getuid() == 0) strcpy(username, "root");
+    if(strcmp(username, "") == 0 && strcmp(password, "") == 0) {
+        printf("Masukkan username dan password\n");
+        return false;
+    }
     printf("Username: %s\n", username);
     printf("Password: %s\n", password);
     send(sock, username, MAX_CREDENTIALS_LENGTH, 0);
@@ -54,7 +58,11 @@ bool authentication(int sock) {
     char message[FAIL_OR_SUCCESS_LENGTH];
     memset(message, 0, FAIL_OR_SUCCESS_LENGTH);
     read(sock, message, FAIL_OR_SUCCESS_LENGTH);
-    return strcmp(successMsg, message) == 0;
+    if(strcmp(failMsg, message) == 0) {
+        printf("Username atau password salah\n");
+        return false;
+    }
+    return true;
 }
 
 bool parseArgs(int argc, char const *argv[]) {
@@ -70,6 +78,34 @@ bool parseArgs(int argc, char const *argv[]) {
         }
         printf("Argumen tidak diformat dengan benar");
     }
+}
+
+void createUser(int socket, char fullQuery[]) {
+    if(strcmp(username, "root") != 0) {
+        printf("Non-root user tidak berhak membuat user baru.\n");
+        return;
+    }
+    const char command[] = "createUser";
+    char newUser[MAX_CREDENTIALS_LENGTH];
+    char newPassword[MAX_CREDENTIALS_LENGTH];
+    char response[FAIL_OR_SUCCESS_LENGTH];
+    sscanf(fullQuery, "%*s %*s %s %*s %*s %s", newUser, newPassword);
+    if(newPassword[strlen(newPassword) - 1] != ';') {
+        printf("Syntax error, missing semicolon at the end of query.\n");
+        return;
+    }
+    newPassword[strlen(newPassword) - 1] = '\0';
+    send(socket, command, MAX_INFORMATION_LENGTH, 0);
+    send(socket, newUser, MAX_CREDENTIALS_LENGTH, 0);
+    send(socket, newPassword, MAX_CREDENTIALS_LENGTH, 0);
+    read(socket, response, FAIL_OR_SUCCESS_LENGTH);
+    if(strcmp(response, successMsg) == 0) printf("Berhasil membuat user baru.\n");
+    else printf("Gagal membuat user baru.\n");
+}
+
+void executePrompt(int socket, char fullQuery[]) {
+    if(strstr(fullQuery, "CREATE USER") != NULL)
+        createUser(socket, fullQuery);
 }
 
 int main(int argc, char const *argv[]) {
@@ -93,18 +129,16 @@ int main(int argc, char const *argv[]) {
     }
 
     if(!authentication(sock)) {
-        printf("Username atau password salah\n");
         exit(EXIT_FAILURE);
     }
 
     printf("User authenticated.\n");
-    // while(true) {
-    //     char action[MAX_INFORMATION_LENGTH];
-    //     memset(action, 0, MAX_INFORMATION_LENGTH);
-    //     printPrompt();
-    //     scanf("%s", action);
-    //     getchar();
-    //     executePrompt(sock, action);
-    // }
+    while(true) {
+        char query[MAX_INFORMATION_LENGTH];
+        memset(query, 0, MAX_INFORMATION_LENGTH);
+        fgets(query, MAX_INFORMATION_LENGTH, stdin);
+        if(query[strlen(query) - 1] == '\n') query[strlen(query) - 1] = '\0';
+        executePrompt(sock, query);
+    }
     return 0;
 }
