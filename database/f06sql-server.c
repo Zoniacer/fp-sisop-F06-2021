@@ -264,6 +264,89 @@ void createDatabase(int socket, char authenticatedUser[]) {
     chdir("../");
 }
 
+int remove_directory(const char *path) {
+   DIR *d = opendir(path);
+   size_t path_len = strlen(path);
+   int r = -1;
+
+   if (d) {
+      struct dirent *p;
+
+      r = 0;
+      while (!r && (p=readdir(d))) {
+          int r2 = -1;
+          char *buf;
+          size_t len;
+
+          /* Skip the names "." and ".." as we don't want to recurse on them. */
+          if (!strcmp(p->d_name, ".") || !strcmp(p->d_name, ".."))
+             continue;
+
+          len = path_len + strlen(p->d_name) + 2; 
+          buf = malloc(len);
+
+          if (buf) {
+             struct stat statbuf;
+
+             snprintf(buf, len, "%s/%s", path, p->d_name);
+             if (!stat(buf, &statbuf)) {
+                if (S_ISDIR(statbuf.st_mode))
+                   r2 = remove_directory(buf);
+                else
+                   r2 = unlink(buf);
+             }
+             free(buf);
+          }
+          r = r2;
+      }
+      closedir(d);
+   }
+
+   if (!r)
+      r = rmdir(path);
+
+   return r;
+}
+
+void dropDatabase(int socket, char authenticatedUser[]) {
+    char dbName[MAX_CREDENTIALS_LENGTH];
+    memset(dbName, 0, MAX_CREDENTIALS_LENGTH);
+    read(socket, dbName, MAX_CREDENTIALS_LENGTH);
+    char command[1000];
+    sprintf(command, "DROP DATABASE %s", dbName);
+    logging(authenticatedUser, command);
+    if(!isFolderExists(dbName)) {
+        send(socket, failMsg, FAIL_OR_SUCCESS_LENGTH, 0);
+        char reason[MAX_INFORMATION_LENGTH];
+        sprintf(reason, "DB %s tidak ada.", dbName);
+        send(socket, reason, MAX_INFORMATION_LENGTH, 0);
+        return;
+    }
+    if(isRoot(authenticatedUser)) {
+        remove_directory(dbName);
+        send(socket, successMsg, FAIL_OR_SUCCESS_LENGTH, 0);
+        return;
+    }
+    chdir(dbName);
+    FILE * accessTable = fopen(accessDBFileName, "r");
+    char authorizedUser[MAX_CREDENTIALS_LENGTH];
+    while(fscanf(accessTable, "%s", authorizedUser) != EOF) {
+        if(strcmp(authorizedUser, authenticatedUser) == 0) {
+            fclose(accessTable);
+            chdir("../");
+            remove_directory(dbName);
+            send(socket, successMsg, FAIL_OR_SUCCESS_LENGTH, 0);
+            return;
+        }
+    }
+    send(socket, failMsg, FAIL_OR_SUCCESS_LENGTH, 0);
+    char reason[MAX_INFORMATION_LENGTH];
+    sprintf(reason, "Anda tidak berhak menghapus DB %s", dbName);
+    send(socket, reason, MAX_INFORMATION_LENGTH, 0);
+    fclose(accessTable);
+    chdir("../");
+}
+
 void * app(void * vargp) {
     int socket = *((int *)vargp);
     char authenticatedUser[MAX_CREDENTIALS_LENGTH];
@@ -288,6 +371,8 @@ void * app(void * vargp) {
             grantDatabaseToUser(socket, authenticatedUser);
         else if(strcmp(action, "createDatabase") == 0)
             createDatabase(socket, authenticatedUser);
+        else if(strcmp(action, "dropDatabase") == 0)
+            dropDatabase(socket, authenticatedUser);
     }
 }
 

@@ -174,6 +174,28 @@ void createDatabase(int socket, char fullQuery[]) {
     printf("%s\n", reason);
 }
 
+void dropDatabase(int socket, char fullQuery[]) {
+    char dbName[MAX_CREDENTIALS_LENGTH];
+    sscanf(fullQuery, "%*s %*s %s", dbName);
+    if(dbName[strlen(dbName) - 1] != ';') {
+        printSemicolonError();
+        return;
+    }
+    dbName[strlen(dbName) - 1] = '\0';
+    const char command[] = "dropDatabase";
+    char response[FAIL_OR_SUCCESS_LENGTH];
+    send(socket, command, MAX_INFORMATION_LENGTH, 0);
+    send(socket, dbName, MAX_CREDENTIALS_LENGTH, 0);
+    read(socket, response, FAIL_OR_SUCCESS_LENGTH);
+    if(strcmp(response, successMsg) == 0) {
+        printf("Database %s berhasil dihapus\n", dbName);
+        return;
+    }
+    char reason[MAX_INFORMATION_LENGTH];
+    read(socket, reason, MAX_INFORMATION_LENGTH);
+    printf("%s\n", reason);
+}
+
 void executePrompt(int socket, char fullQuery[]) {
     if(strstr(fullQuery, "CREATE USER") != NULL)
         createUser(socket, fullQuery);
@@ -183,6 +205,8 @@ void executePrompt(int socket, char fullQuery[]) {
         grantDatabaseToUser(socket, fullQuery);
     else if(strstr(fullQuery, "CREATE DATABASE") != NULL)
         createDatabase(socket, fullQuery);
+    else if(strstr(fullQuery, "DROP DATABASE") != NULL)
+        dropDatabase(socket, fullQuery);
     else if(strstr(fullQuery, "EXIT") != NULL)
         exit(EXIT_SUCCESS);
 }
