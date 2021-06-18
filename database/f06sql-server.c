@@ -165,8 +165,6 @@ void useDatabase(int socket, char authenticatedUser[]) {
     char command[1000];
     sprintf(command, "USE %s", dbName);
     logging(authenticatedUser, command);
-    puts("mantap");
-    // getcwd(currentPath, sizeof currentPath);
     printf("%s\n", dbName);
     if(!isFolderExists(dbName)) {
         send(socket, failMsg, FAIL_OR_SUCCESS_LENGTH, 0);
@@ -237,6 +235,35 @@ void grantDatabaseToUser(int socket, char authenticatedUser[]) {
     chdir("../");
 }
 
+void createDatabase(int socket, char authenticatedUser[]) {
+    char dbName[MAX_CREDENTIALS_LENGTH];
+    memset(dbName, 0, MAX_CREDENTIALS_LENGTH);
+    read(socket, dbName, MAX_CREDENTIALS_LENGTH);
+    char command[1000];
+    sprintf(command, "CREATE DATABASE %s", dbName);
+    logging(authenticatedUser, command);
+    if(isFolderExists(dbName)) {
+        send(socket, failMsg, FAIL_OR_SUCCESS_LENGTH, 0);
+        char reason[MAX_INFORMATION_LENGTH];
+        sprintf(reason, "DB %s sudah ada.", dbName);
+        send(socket, reason, MAX_INFORMATION_LENGTH, 0);
+        return;
+    }
+    mkdir(dbName, S_IRWXU);
+    chdir(dbName);
+    FILE * accessTable = fopen(accessDBFileName, "w");
+    if(isRoot(authenticatedUser)) {
+        send(socket, successMsg, FAIL_OR_SUCCESS_LENGTH, 0);
+        fclose(accessTable);
+        chdir("../");
+        return;
+    }
+    fprintf(accessTable, "%s\n", authenticatedUser);
+    send(socket, successMsg, FAIL_OR_SUCCESS_LENGTH, 0);
+    fclose(accessTable);
+    chdir("../");
+}
+
 void * app(void * vargp) {
     int socket = *((int *)vargp);
     char authenticatedUser[MAX_CREDENTIALS_LENGTH];
@@ -259,6 +286,8 @@ void * app(void * vargp) {
             useDatabase(socket, authenticatedUser);
         else if(strcmp(action, "grantDatabaseToUser") == 0)
             grantDatabaseToUser(socket, authenticatedUser);
+        else if(strcmp(action, "createDatabase") == 0)
+            createDatabase(socket, authenticatedUser);
     }
 }
 
