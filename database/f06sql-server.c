@@ -18,13 +18,16 @@ const char failMsg[] = "false";
 const char successMsg[] = "true";
 char defaultDB[] = "f06database";
 char defaultUsersTable[] = "UsersTable";
+char accessDBFileName[] = "_AccessTable";
+char currentDatabase[MAX_INFORMATION_LENGTH];
+char currentPath[MAX_INFORMATION_LENGTH];
 
 bool isFileExists(char filename[]) {
     return access(filename, F_OK) == 0;
 }
 
 bool isFolderExists(char foldername[]) {
-    DIR * dir = opendir("FILES");
+    DIR * dir = opendir(foldername);
     return dir != NULL;
 }
 
@@ -62,6 +65,22 @@ bool acceptConnection(int * new_socket, int * server_fd, struct sockaddr_in * ad
     return (*new_socket = accept(*server_fd, (struct sockaddr *)address, (socklen_t*)&addrlen)) != -1;
 }
 
+bool isUserExists(char username[]) {
+    chdir(defaultDB);
+    FILE * usersTable = fopen(defaultUsersTable, "r");
+    char usernameInDB[MAX_CREDENTIALS_LENGTH];
+    while(fscanf(usersTable, "%s %*s", usernameInDB) != EOF) {
+        if(strcmp(username, usernameInDB) == 0) {
+            fclose(usersTable);
+            chdir("../");
+            return true;
+        }
+    }
+    fclose(usersTable);
+    chdir("../");
+    return false;
+}
+
 bool authentication(int socket, char authenticatedUser[]) {
     char username[MAX_CREDENTIALS_LENGTH], password[MAX_CREDENTIALS_LENGTH];
     memset(username, 0, MAX_CREDENTIALS_LENGTH);
@@ -91,13 +110,17 @@ bool authentication(int socket, char authenticatedUser[]) {
     return false;
 }
 
+bool isRoot(char authenticatedUser[]) {
+    return strcmp(authenticatedUser, "root") == 0;
+}
+
 void createUser(int socket, char authenticatedUser[]) {
     char username[MAX_CREDENTIALS_LENGTH], password[MAX_CREDENTIALS_LENGTH];
     memset(username, 0, MAX_CREDENTIALS_LENGTH);
     memset(password, 0, MAX_CREDENTIALS_LENGTH);
     read(socket, username, MAX_CREDENTIALS_LENGTH);
     read(socket, password, MAX_CREDENTIALS_LENGTH);
-    if(strcmp(authenticatedUser, "root") != 0) {
+    if(!isRoot(authenticatedUser)) {
         send(socket, failMsg, FAIL_OR_SUCCESS_LENGTH, 0);
         return;
     }
@@ -112,6 +135,87 @@ void createUser(int socket, char authenticatedUser[]) {
     fclose(usersTable);
     chdir("../");
     send(socket, successMsg, FAIL_OR_SUCCESS_LENGTH, 0);
+}
+
+// void createDatabase();
+
+void useDatabaseSuccess(int socket, char dbName[]) {
+    strcpy(currentDatabase, dbName);
+    send(socket, successMsg, FAIL_OR_SUCCESS_LENGTH, 0);
+}
+
+void useDatabase(int socket, char authenticatedUser[]) {
+    char dbName[MAX_CREDENTIALS_LENGTH];
+    memset(dbName, 0, MAX_CREDENTIALS_LENGTH);
+    read(socket, dbName, MAX_CREDENTIALS_LENGTH);
+    puts("mantap");
+    // getcwd(currentPath, sizeof currentPath);
+    printf("%s\n", dbName);
+    if(!isFolderExists(dbName)) {
+        send(socket, failMsg, FAIL_OR_SUCCESS_LENGTH, 0);
+        char reason[MAX_INFORMATION_LENGTH];
+        sprintf(reason, "DB %s tidak ditemukan.", dbName);
+        send(socket, reason, MAX_INFORMATION_LENGTH, 0);
+        return;
+    }
+    if(isRoot(authenticatedUser)) {
+        useDatabaseSuccess(socket, dbName);
+        return;
+    }
+    chdir(dbName);
+    FILE * accessTable = fopen(accessDBFileName, "r");
+    char authorizedUser[MAX_CREDENTIALS_LENGTH];
+    while(fscanf(accessTable, "%s", authorizedUser) != EOF) {
+        if(strcmp(authorizedUser, authenticatedUser) == 0) {
+            useDatabaseSuccess(socket, dbName);
+            chdir("../");
+            return;
+        }
+    }
+    send(socket, failMsg, FAIL_OR_SUCCESS_LENGTH, 0);
+    char reason[MAX_INFORMATION_LENGTH];
+    sprintf(reason, "Anda tidak berhak mengakses DB %s", dbName);
+    send(socket, reason, MAX_INFORMATION_LENGTH, 0);
+    fclose(accessTable);
+    chdir("../");
+}
+
+void grantDatabaseToUser(int socket, char authenticatedUser[]) {
+    char dbName[MAX_CREDENTIALS_LENGTH], username[MAX_CREDENTIALS_LENGTH];
+    memset(dbName, 0, MAX_CREDENTIALS_LENGTH);
+    read(socket, dbName, MAX_CREDENTIALS_LENGTH);
+    memset(username, 0, MAX_CREDENTIALS_LENGTH);
+    read(socket, username, MAX_CREDENTIALS_LENGTH);
+    if(!isRoot(authenticatedUser)) {
+        send(socket, failMsg, FAIL_OR_SUCCESS_LENGTH, 0);
+        char reason[MAX_INFORMATION_LENGTH];
+        sprintf(reason, "Non-root tidak berhak memberikan akses database.");
+        send(socket, reason, MAX_INFORMATION_LENGTH, 0);
+        return;
+    }
+    if(!isFolderExists(dbName)) {
+        send(socket, failMsg, FAIL_OR_SUCCESS_LENGTH, 0);
+        char reason[MAX_INFORMATION_LENGTH];
+        sprintf(reason, "DB %s tidak ditemukan.", dbName);
+        send(socket, reason, MAX_INFORMATION_LENGTH, 0);
+        return;
+    }
+    puts("mantap");
+    if(!isUserExists(username)) {
+        send(socket, failMsg, FAIL_OR_SUCCESS_LENGTH, 0);
+        char reason[MAX_INFORMATION_LENGTH];
+        sprintf(reason, "User %s tidak ditemukan.", username);
+        send(socket, reason, MAX_INFORMATION_LENGTH, 0);
+        return;
+    }
+    chdir(dbName);
+    getcwd(currentPath, sizeof currentPath);
+    puts(currentPath);
+    FILE * accessTable = fopen(accessDBFileName, "a");
+    fprintf(accessTable, "%s\n", username);
+    fclose(accessTable);
+    send(socket, successMsg, FAIL_OR_SUCCESS_LENGTH, 0);
+    chdir("../");
 }
 
 void * app(void * vargp) {
@@ -132,6 +236,10 @@ void * app(void * vargp) {
             return NULL;
         if(strcmp(action, "createUser") == 0)
             createUser(socket, authenticatedUser);
+        else if(strcmp(action, "useDatabase") == 0)
+            useDatabase(socket, authenticatedUser);
+        else if(strcmp(action, "grantDatabaseToUser") == 0)
+            grantDatabaseToUser(socket, authenticatedUser);
     }
 }
 
@@ -150,6 +258,7 @@ int main(int argc, char * argv[]) {
     if(!isFolderExists(defaultDB)) mkdir(defaultDB, S_IRWXU);
     chdir(defaultDB);
     if(!isFileExists(defaultUsersTable)) createFile(defaultUsersTable);
+    if(!isFileExists(accessDBFileName)) createFile(accessDBFileName);
     chdir("../");
 
     while(true) {

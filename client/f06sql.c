@@ -80,6 +80,10 @@ bool parseArgs(int argc, char const *argv[]) {
     }
 }
 
+void printSemicolonError() {
+    printf("Syntax error, missing semicolon at the end of query.\n");
+}
+
 void createUser(int socket, char fullQuery[]) {
     if(strcmp(username, "root") != 0) {
         printf("Non-root user tidak berhak membuat user baru.\n");
@@ -91,7 +95,7 @@ void createUser(int socket, char fullQuery[]) {
     char response[FAIL_OR_SUCCESS_LENGTH];
     sscanf(fullQuery, "%*s %*s %s %*s %*s %s", newUser, newPassword);
     if(newPassword[strlen(newPassword) - 1] != ';') {
-        printf("Syntax error, missing semicolon at the end of query.\n");
+        printSemicolonError();
         return;
     }
     newPassword[strlen(newPassword) - 1] = '\0';
@@ -103,9 +107,58 @@ void createUser(int socket, char fullQuery[]) {
     else printf("Gagal membuat user baru.\n");
 }
 
+void useDatabase(int socket, char fullQuery[]) {
+    char dbName[MAX_CREDENTIALS_LENGTH];
+    sscanf(fullQuery, "%*s %s", dbName);
+    if(dbName[strlen(dbName) - 1] != ';') {
+        printSemicolonError();
+        return;
+    }
+    dbName[strlen(dbName) - 1] = '\0';
+    const char command[] = "useDatabase";
+    char response[FAIL_OR_SUCCESS_LENGTH];
+    send(socket, command, MAX_INFORMATION_LENGTH, 0);
+    send(socket, dbName, MAX_CREDENTIALS_LENGTH, 0);
+    read(socket, response, MAX_INFORMATION_LENGTH);
+    if(strcmp(response, successMsg) == 0) {
+        printf("Tersambung ke database %s\n", dbName);
+        return;
+    }
+    char reason[MAX_INFORMATION_LENGTH];
+    read(socket, reason, MAX_INFORMATION_LENGTH);
+    printf("%s\n", reason);
+}
+
+void grantDatabaseToUser(int socket, char fullQuery[]) {
+    char dbName[MAX_CREDENTIALS_LENGTH], grantedTo[MAX_CREDENTIALS_LENGTH];
+    sscanf(fullQuery, "%*s %*s %s %*s %s", dbName, grantedTo);
+    if(grantedTo[strlen(grantedTo) - 1] != ';') {
+        printSemicolonError();
+        return;
+    }
+    grantedTo[strlen(grantedTo) - 1] = '\0';
+    const char command[] = "grantDatabaseToUser";
+    char response[FAIL_OR_SUCCESS_LENGTH];
+    send(socket, command, MAX_INFORMATION_LENGTH, 0);
+    send(socket, dbName, MAX_CREDENTIALS_LENGTH, 0);
+    send(socket, grantedTo, MAX_CREDENTIALS_LENGTH, 0);
+    read(socket, response, FAIL_OR_SUCCESS_LENGTH);
+    if(strcmp(response, successMsg) == 0) {
+        printf("Akses database %s diberikan ke %s\n", dbName, grantedTo);
+        return;
+    }
+    char reason[MAX_INFORMATION_LENGTH];
+    read(socket, reason, MAX_INFORMATION_LENGTH);
+    printf("%s\n", reason);
+}
+
 void executePrompt(int socket, char fullQuery[]) {
     if(strstr(fullQuery, "CREATE USER") != NULL)
         createUser(socket, fullQuery);
+    else if(strstr(fullQuery, "USE") != NULL)
+        useDatabase(socket, fullQuery);
+    else if(strstr(fullQuery, "GRANT PERMISSION") != NULL)
+        grantDatabaseToUser(socket, fullQuery);
 }
 
 int main(int argc, char const *argv[]) {
