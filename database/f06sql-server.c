@@ -65,6 +65,17 @@ bool acceptConnection(int * new_socket, int * server_fd, struct sockaddr_in * ad
     return (*new_socket = accept(*server_fd, (struct sockaddr *)address, (socklen_t*)&addrlen)) != -1;
 }
 
+void logging(char authenticatedUser[], char command[]) {
+    FILE * logFile = fopen("db.log", "a");
+    if(logFile == NULL) return;
+    time_t now = time(NULL);
+    struct tm * nowLocalTM = localtime(&now);
+    char formattedTime[MAX_INFORMATION_LENGTH];
+    strftime(formattedTime, sizeof formattedTime, "%Y-%m-%d %H:%M:%S", nowLocalTM);
+    fprintf(logFile, "%s:%s:%s\n", formattedTime, authenticatedUser, command);
+    fclose(logFile);
+}
+
 bool isUserExists(char username[]) {
     chdir(defaultDB);
     FILE * usersTable = fopen(defaultUsersTable, "r");
@@ -120,6 +131,9 @@ void createUser(int socket, char authenticatedUser[]) {
     memset(password, 0, MAX_CREDENTIALS_LENGTH);
     read(socket, username, MAX_CREDENTIALS_LENGTH);
     read(socket, password, MAX_CREDENTIALS_LENGTH);
+    char command[1000];
+    sprintf(command, "CREATE USER %s IDENTIFIED BY %s", username, password);
+    logging(authenticatedUser, command);
     if(!isRoot(authenticatedUser)) {
         send(socket, failMsg, FAIL_OR_SUCCESS_LENGTH, 0);
         return;
@@ -148,6 +162,9 @@ void useDatabase(int socket, char authenticatedUser[]) {
     char dbName[MAX_CREDENTIALS_LENGTH];
     memset(dbName, 0, MAX_CREDENTIALS_LENGTH);
     read(socket, dbName, MAX_CREDENTIALS_LENGTH);
+    char command[1000];
+    sprintf(command, "USE %s", dbName);
+    logging(authenticatedUser, command);
     puts("mantap");
     // getcwd(currentPath, sizeof currentPath);
     printf("%s\n", dbName);
@@ -186,6 +203,9 @@ void grantDatabaseToUser(int socket, char authenticatedUser[]) {
     read(socket, dbName, MAX_CREDENTIALS_LENGTH);
     memset(username, 0, MAX_CREDENTIALS_LENGTH);
     read(socket, username, MAX_CREDENTIALS_LENGTH);
+    char command[1000];
+    sprintf(command, "GRANT PERMISSION %s INTO %s", dbName, username);
+    logging(authenticatedUser, command);
     if(!isRoot(authenticatedUser)) {
         send(socket, failMsg, FAIL_OR_SUCCESS_LENGTH, 0);
         char reason[MAX_INFORMATION_LENGTH];
@@ -200,7 +220,6 @@ void grantDatabaseToUser(int socket, char authenticatedUser[]) {
         send(socket, reason, MAX_INFORMATION_LENGTH, 0);
         return;
     }
-    puts("mantap");
     if(!isUserExists(username)) {
         send(socket, failMsg, FAIL_OR_SUCCESS_LENGTH, 0);
         char reason[MAX_INFORMATION_LENGTH];

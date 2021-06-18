@@ -119,7 +119,7 @@ void useDatabase(int socket, char fullQuery[]) {
     char response[FAIL_OR_SUCCESS_LENGTH];
     send(socket, command, MAX_INFORMATION_LENGTH, 0);
     send(socket, dbName, MAX_CREDENTIALS_LENGTH, 0);
-    read(socket, response, MAX_INFORMATION_LENGTH);
+    read(socket, response, FAIL_OR_SUCCESS_LENGTH);
     if(strcmp(response, successMsg) == 0) {
         printf("Tersambung ke database %s\n", dbName);
         return;
